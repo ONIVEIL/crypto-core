@@ -9,7 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [18, 20, 22]
+        # @noble/* 2.x (the crypto primitives this project builds on) require Node >= 20.19.0;
+        # Node 18 fails at test runtime even though typecheck passes (TS checks types, not
+        # execution). Keep this matrix in sync with the "engines" field in package.json.
+        node: [20, 22]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

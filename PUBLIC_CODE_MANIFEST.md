@@ -23,7 +23,7 @@
 | `src/diagnostics.ts` | Small logging switch imported by the storage code; included unchanged so imports resolve |
 | `__tests__/*.test.ts`, `__tests__/testUtils/keychainMock.ts` | 20 test suites and the in-memory Keychain mock |
 | `package.json`, `package-lock.json`, `jest.config.js`, `babel.config.js`, `tsconfig.json` | Minimal, pinned tooling created for this export (the original app uses the React Native toolchain) |
-| `.github/workflows/test.yml` | CI: typecheck and tests on Node 18/20/22 |
+| `.github/workflows/test.yml` | CI: typecheck and tests on Node 20/22 (the minimum the `@noble/*` dependencies require is 20.19) |
 | `README.md`, `THREAT_MODEL.md`, `AUDIT_QUESTIONS.md`, `SECURITY.md`, `LICENSE` | Documentation written for this export |
 
 ## What is deliberately not included

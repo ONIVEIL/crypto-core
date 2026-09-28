@@ -47,7 +47,7 @@ npm test          # 20 suites, 475 tests
 npm run typecheck
 ```
 
-Node 18 or newer. The tests run under plain Node/Jest; `react-native-keychain` and `@react-native-async-storage/async-storage` are replaced by in-memory mocks, so the real Android Keystore and biometric behavior is **not** exercised by them.
+Node 20.19 or newer (required by the `@noble/*` crypto libraries this project uses). The tests run under plain Node/Jest; `react-native-keychain` and `@react-native-async-storage/async-storage` are replaced by in-memory mocks, so the real Android Keystore and biometric behavior is **not** exercised by them.
 
 ## What is and is not in this repository
 

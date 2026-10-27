@@ -16,6 +16,7 @@ import {hmac} from '@noble/hashes/hmac.js';
 import {sha256, sha512} from '@noble/hashes/sha2.js';
 import {bytesToHex, hexToBytes, utf8ToBytes} from '@noble/hashes/utils.js';
 import {
+  computeAckMac,
   createSession,
   decryptMessage,
   encryptMessage,
@@ -25,6 +26,7 @@ import {
   OutgoingEnvelope,
   ReplayOrOutOfOrderError,
   Session,
+  verifyAckMac,
 } from '../src/crypto/session';
 import {bytesToUtf8} from '../src/crypto/textCodec';
 
@@ -98,6 +100,64 @@ describe('session', () => {
     );
 
     expect(plaintext).toBe('hallo bob');
+  });
+
+  describe('authenticated acknowledgement', () => {
+    async function sendOne() {
+      const alice = keypair();
+      const bob = keypair();
+      const aliceSigning = await signingKeypair();
+      const aliceSession = createSession(
+        alice.privateKey,
+        alice.publicKey,
+        bob.publicKey,
+      );
+      const bobSession = createSession(
+        bob.privateKey,
+        bob.publicKey,
+        alice.publicKey,
+      );
+      const sent = await encryptMessage(aliceSession, 'hi', aliceSigning.privateKey);
+      const received = await decryptMessage(
+        bobSession,
+        sent.envelope,
+        aliceSigning.publicKey,
+      );
+      return {sent, received, bobSession, aliceSigning};
+    }
+
+    it('sender and recipient derive the same acknowledgement key', async () => {
+      const {sent, received} = await sendOne();
+      expect(sent.ackKey).toMatch(/^[0-9a-f]{64}$/);
+      expect(received.ackKey).toBe(sent.ackKey);
+    });
+
+    it('accepts a MAC of the real recipient and binds it to the sequence number', async () => {
+      const {sent} = await sendOne();
+      const mac = computeAckMac(sent.ackKey, 0);
+      expect(verifyAckMac(sent.ackKey, 0, mac)).toBe(true);
+      expect(verifyAckMac(sent.ackKey, 1, mac)).toBe(false);
+    });
+
+    it('rejects a MAC computed with a different key and malformed values', async () => {
+      const {sent} = await sendOne();
+      const other = await sendOne();
+      expect(verifyAckMac(sent.ackKey, 0, computeAckMac(other.sent.ackKey, 0))).toBe(false);
+      expect(verifyAckMac(sent.ackKey, 0, 'zz')).toBe(false);
+      expect(verifyAckMac('zz', 0, computeAckMac(sent.ackKey, 0))).toBe(false);
+    });
+
+    it('a repeated delivery of the same envelope yields the same acknowledgement key', async () => {
+      const {sent, received, bobSession, aliceSigning} = await sendOne();
+      const repeat = await decryptMessage(
+        received.nextSession,
+        sent.envelope,
+        aliceSigning.publicKey,
+      );
+      expect(repeat.duplicate).toBe(true);
+      expect(repeat.ackKey).toBe(sent.ackKey);
+      expect(bobSession).toBeDefined();
+    });
   });
 
   it('works independently in both directions at the same time', async () => {

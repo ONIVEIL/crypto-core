@@ -21,8 +21,8 @@ import {
 
 const ENVELOPE = {
   sequenceNumber: 0,
-  nonce: 'ab',
-  ciphertext: 'cd',
+  nonce: 'ab'.repeat(24),
+  ciphertext: 'cd'.repeat(24),
   ratchetPublicKey: '33'.repeat(32),
 };
 
@@ -232,6 +232,62 @@ describe('wireProtocol', () => {
       expect(() => pushRawFrame(decoder, {type: 'media-ack'})).toThrow(
         ProtocolError,
       );
+    });
+  });
+
+  describe('strict format check', () => {
+    function decodeEnvelope(envelope: Record<string, unknown>) {
+      const frame = encodeFrame({type: 'message', envelope: envelope as never});
+      return () => new FrameDecoder().push(frame);
+    }
+
+    it.each([
+      ['a nonce of the wrong length', {nonce: 'ab'.repeat(12)}],
+      ['a nonce with non-hex characters', {nonce: 'zz'.repeat(24)}],
+      ['a ciphertext that is too short (no room for the authentication tag)', {ciphertext: 'ab'.repeat(8)}],
+      ['a ciphertext of odd length', {ciphertext: 'a'.repeat(33)}],
+      ['a ciphertext with non-hex characters', {ciphertext: 'xy'.repeat(24)}],
+      ['a negative sequence number', {sequenceNumber: -1}],
+      ['an unreasonably large sequence number', {sequenceNumber: 2 ** 40}],
+      ['a freshness value of the wrong length', {initialFreshness: 'ab'}],
+      ['a signature of the wrong length', {initialAuth: 'ab'.repeat(10)}],
+    ])('rejects an envelope with %s', (_name, override) => {
+      expect(decodeEnvelope({...ENVELOPE, ...override})).toThrow(ProtocolError);
+    });
+
+    it('accepts a complete first envelope with freshness and signature', () => {
+      const envelope = {
+        ...ENVELOPE,
+        initialFreshness: 'ab'.repeat(16),
+        initialAuth: 'cd'.repeat(64),
+      };
+      expect(decodeEnvelope(envelope)()).toEqual([{type: 'message', envelope}]);
+    });
+  });
+
+  describe('authenticated acknowledgements', () => {
+    it('transports the MAC of a message acknowledgement', () => {
+      const frame = encodeFrame({type: 'ack', sequenceNumber: 4, mac: 'ab'.repeat(32)});
+      expect(new FrameDecoder().push(frame)).toEqual([
+        {type: 'ack', sequenceNumber: 4, mac: 'ab'.repeat(32)},
+      ]);
+    });
+
+    it('transports the MAC of an attachment acknowledgement', () => {
+      const frame = encodeFrame({type: 'media-ack', transferId: 't1', mac: 'cd'.repeat(32)});
+      expect(new FrameDecoder().push(frame)).toEqual([
+        {type: 'media-ack', transferId: 't1', mac: 'cd'.repeat(32)},
+      ]);
+    });
+
+    it('still accepts acknowledgements without a MAC (older peer)', () => {
+      const frame = encodeFrame({type: 'ack', sequenceNumber: 4});
+      expect(new FrameDecoder().push(frame)).toEqual([{type: 'ack', sequenceNumber: 4}]);
+    });
+
+    it('rejects a MAC in the wrong format', () => {
+      const frame = encodeFrame({type: 'ack', sequenceNumber: 4, mac: 'not-hex'});
+      expect(() => new FrameDecoder().push(frame)).toThrow(ProtocolError);
     });
   });
 });

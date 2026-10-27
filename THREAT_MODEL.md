@@ -30,6 +30,7 @@ Not considered: a fully compromised, rooted device or a malicious app with the s
 | Forward secrecy / post-compromise healing | DH ratchet (fresh X25519 pair) triggered by receiving a new peer ratchet key; HMAC-SHA256 chain step per message; one side (`amLower`) forces the first rotation | `session.ts` |
 | Impersonation resistance on the first message of each direction | Ed25519 signature over `("oniveil-initial-auth", freshness, senderStaticKey, receiverStaticKey)`; the freshness is also mixed into the chain key | `session.ts` |
 | Replay of a re-used first message after a contact was deleted and re-added | Persistent per-peer list of consumed `initialFreshness` values, independent of the session object | `consumedInitialFreshness.ts` |
+| Delivery acknowledgement that only the real recipient can produce | MAC keyed from the message key (messages) or the attachment key (attachments, bound to `transferId`) | `session.ts`, `attachmentCrypto.ts`, `wireProtocol.ts` |
 | Replay / reorder protection | Strict expected sequence number; only a bounded window of already consumed message keys is tolerated, and only for exact AEAD-authenticated repeats | `session.ts` |
 | Attachment confidentiality | One random 32-byte key per attachment, XChaCha20-Poly1305 over the whole blob, `transferId` as associated data; the key travels inside a ratchet-encrypted message | `attachmentCrypto.ts`, `messageContent.ts` |
 | Storage at rest | XChaCha20-Poly1305 under a random 32-byte `vaultKey` kept in the Android Keystore; per-record associated data binds ciphertext to its logical location | `encryptedStore.ts`, `encryptedCollection.ts`, `sessions.ts`, `vaultKey.ts` |
@@ -51,7 +52,11 @@ These are stated deliberately; several are the main things reviewers are asked t
 8. **Diagnostic logging (off by default).** When switched on, storage code logs lengths and a ~17-bit position-dependent fingerprint of the vault key, and the frame decoder logs the raw frame text if JSON parsing fails. No key material or plaintext messages are logged, but the switch should be considered a debugging aid, not a production feature.
 9. **Tests use mocks for Keystore and storage.** They demonstrate logic, not the behavior of the real Android Keystore, biometric APIs or AsyncStorage.
 10. **Custom protocol.** The composition of standard primitives is the author's own design and has no formal proof or external audit. The implementation-correctness tests (independent test vectors) do not establish that the composition is secure.
-11. **`createSession` throws on low-order peer keys** (rejected inside `@noble/curves`, not by a check in this code base). A caller that does not catch this could see an availability problem; the calling layer is not part of this repository.
+11. **`createSession` throws on low-order peer keys** (rejected inside `@noble/curves`, not by a check in this code base). The application catches this and skips that contact, so one contact's bad key does not affect receipt from other contacts; that calling layer is not part of this repository.
+12. **Delivery acknowledgements are authenticated, with a downgrade window.** An `ack` carries `HMAC-SHA256(ackKey, "oniveil-ack-mac-v1" || sequence)` where `ackKey = HMAC-SHA256(messageKey, "oniveil-ack-key-v1")`; only the sender and the party that decrypted the message can compute it. Until a contact has sent one authenticated acknowledgement, an acknowledgement without a MAC is accepted (older peers); afterwards it is rejected. That policy lives in the application layer, not in this repository. Attachment acknowledgements use a key derived from the attachment key and are bound to the `transferId`.
+13. **The onion address is not bound to the identity keys.** The reachable address in the contact code is assigned by Orbot and is not derived from the identity keys. Whoever replaces it can withhold messages but cannot read them or forge acknowledgements. The safety number covers only the two key pairs.
+14. **Stored data has no version counter.** Someone with file access can roll back to an older authentic blob. The app lock protects the user interface, not the keys (see 7).
+15. **Unicode handling is a display-safety measure, not a guarantee.** Display text is stripped of control, bidirectional-override, tag, variation-selector and other invisible characters, and the UTF-8 decoder rejects overlong forms and surrogate halves. Look-alike (homoglyph) characters are not detected.
 
 ## 5. Issues found and fixed during development
 
@@ -64,6 +69,11 @@ Listed neutrally so that reviewers know what was already considered:
 - Ciphertext of one storage record being accepted under another record's key → per-record associated data, plus an independent `id` check after decryption.
 - Silent regeneration of the vault key when the Keystore transiently reports "not found" → creation is refused once a "was created" marker exists.
 - `TextDecoder` missing on Hermes / `RangeError` on invalid UTF-8 → own non-throwing UTF-8 decoder.
+- Forged delivery acknowledgements → MAC keyed from the message key / attachment key.
+- Silent replacement of the identity when the Keystore transiently reports "not found" → creation is refused once a "was created" marker exists (explicit override required).
+- Session and consumed-freshness record could diverge after an interrupted write → both are written in one atomic `multiSet`.
+- Lenient UTF-8 decoding and incomplete stripping of invisible characters → strict decoder and a broader character filter.
+- Unauthenticated frames reaching expensive operations → strict hex-length checks of all envelope fields before any key operation.
 - Parser hardening: content size checked before `JSON.parse`, member-list and chunk-count bounds, strict ID patterns, a fixed upper bound on the announced attachment size (enforcing it against the bytes actually received happens in the transport layer, which is not part of this repository).
 
 ## 6. Not covered by this repository

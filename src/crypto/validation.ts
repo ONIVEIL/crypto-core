@@ -67,16 +67,68 @@ export const HEX_16_BYTES_PATTERN = /^[0-9a-f]{32}$/;
 export const MAX_DISPLAY_NAME_LENGTH = 40;
 export const MAX_MESSAGE_LENGTH = 4000;
 
-// Remove bidi embedding/override control characters (U+202A-U+202E, e.g. RIGHT-TO-LEFT
-// OVERRIDE), bidi isolates (U+2066-U+2069), zero-width space (U+200B) and BOM/ZWNBSP (U+FEFF):
-// these are not needed for normal text or name display (real RTL text works without them via the
-// normal Unicode bidi algorithm), but can be used to make displayed text differ from the actual
-// content (visual spoofing) — security-relevant for contact/message text from potentially
-// malicious contacts. Deliberately NOT removed: zero-width joiner/non-joiner (U+200C/U+200D,
-// needed for composite emoji and some scripts) and LRM/RLM (U+200E/U+200F, legitimate formatting
-// hints in mixed RTL text).
-const UNSAFE_TEXT_PATTERN = /[\u200B\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+// Characters that are not needed for normal text or name display but can be used to make
+// displayed text differ from the actual content (visual spoofing) or to carry an invisible
+// payload — security-relevant for contact/message text from potentially malicious contacts:
+//   - control characters (C0 except line feed and tab, DEL, C1), line/paragraph separators
+//     U+2028/U+2029
+//   - bidi embeddings/overrides U+202A-202E, isolates U+2066-2069, Arabic Letter Mark U+061C,
+//     deprecated format characters U+206A-206F
+//   - zero-width space U+200B, word joiner and invisible operators U+2060-2064, Mongolian vowel
+//     separator U+180E, combining grapheme joiner U+034F, BOM/ZWNBSP U+FEFF
+//   - interlinear annotation characters U+FFF9-FFFB
+//   - Unicode tag characters U+E0000-E007F (invisible, can carry hidden text)
+//   - variation selectors except VS15/VS16 (U+FE0E/U+FE0F, needed for emoji presentation):
+//     U+FE00-FE0D and U+E0100-E01EF
+// Deliberately NOT removed: zero-width joiner/non-joiner (U+200C/U+200D, needed for composite
+// emoji and some scripts) and LRM/RLM (U+200E/U+200F, legitimate formatting hints in mixed RTL
+// text; real RTL text works without overrides).
+function isUnsafeCodePoint(cp: number): boolean {
+  if (cp < 0x20) {
+    return cp !== 0x0a && cp !== 0x09;
+  }
+  return (
+    cp === 0x7f ||
+    (cp >= 0x80 && cp <= 0x9f) ||
+    cp === 0x034f ||
+    cp === 0x061c ||
+    cp === 0x180e ||
+    cp === 0x200b ||
+    (cp >= 0x2028 && cp <= 0x202e) ||
+    (cp >= 0x2060 && cp <= 0x206f) ||
+    cp === 0xfeff ||
+    (cp >= 0xfe00 && cp <= 0xfe0d) ||
+    (cp >= 0xfff9 && cp <= 0xfffb) ||
+    (cp >= 0xe0000 && cp <= 0xe007f) ||
+    (cp >= 0xe0100 && cp <= 0xe01ef)
+  );
+}
 
+// `maxLength` counts UTF-16 units (like the message size check in messageContent.ts), but a
+// surrogate pair is never split in the middle.
 export function sanitizeUserText(input: string, maxLength: number): string {
-  return input.replace(UNSAFE_TEXT_PATTERN, '').slice(0, maxLength);
+  let result = '';
+  for (const char of input) {
+    const codePoint = char.codePointAt(0)!;
+    if (isUnsafeCodePoint(codePoint)) {
+      continue;
+    }
+    if (result.length + char.length > maxLength) {
+      break;
+    }
+    result += char;
+  }
+  return result;
+}
+
+// For names, file names and similar single-line fields: like sanitizeUserText, additionally
+// without line breaks and tabs (turned into spaces) and without whitespace at the edges.
+export function sanitizeSingleLineText(
+  input: string,
+  maxLength: number,
+): string {
+  const cleaned = sanitizeUserText(input, input.length)
+    .replace(/\s+/g, ' ')
+    .trim();
+  return sanitizeUserText(cleaned, maxLength);
 }

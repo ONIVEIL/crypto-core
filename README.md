@@ -6,7 +6,7 @@ ONIVEIL is a Tor-based messenger in development for Android (iOS planned). This 
 
 **How this was built:** ONIVEIL is developed by a single developer, using AI coding assistants as a tool alongside their own design decisions and testing. The design has not yet been independently reviewed; that is the purpose of this repository. Feedback, disagreement and hard questions are genuinely welcome — the goal here is to learn where the design is wrong and go deeper into the subject, not to defend it. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to reach out.
 
-**What exists:** only `@noble/*` primitives (no custom ciphers), 475 test cases in 20 suites (including 200 seed-based property-based runs of the ratchet state machine, parser fuzzing, and independent test vectors from RFC 7748, the IETF XChaCha20-Poly1305 draft and `node:crypto`), and a written threat model.
+**What exists:** only `@noble/*` primitives (no custom ciphers), 516 test cases in 20 suites (including 200 seed-based property-based runs of the ratchet state machine, parser fuzzing, and independent test vectors from RFC 7748, the IETF XChaCha20-Poly1305 draft and `node:crypto`), and a written threat model.
 
 **Status:** not production-ready, no security guarantees. Transport and UI are intentionally not included. Reports: see [`SECURITY.md`](SECURITY.md).
 
@@ -43,7 +43,7 @@ The repository looks bigger than it is: of the 54 files, 19 are source files (ab
 
 ```
 npm ci
-npm test          # 20 suites, 475 tests
+npm test          # 20 suites, 516 tests
 npm run typecheck
 ```
 

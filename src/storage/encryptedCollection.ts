@@ -217,6 +217,39 @@ export async function writeCollectionItemsAndIndex<TItem, TSummary>(
   await AsyncStorage.multiSet(pairs);
 }
 
+// Return only the encrypted [key, blob] pair without writing — so that a caller can commit several
+// writes to different storage areas atomically in ONE multiSet.
+export function buildCollectionItemPair<TItem>(
+  baseKey: string,
+  vaultKey: Uint8Array,
+  itemId: string,
+  value: TItem,
+): [string, string] {
+  return [
+    collectionItemKey(baseKey, itemId),
+    encryptBlob(
+      vaultKey,
+      textEncode(JSON.stringify(value)),
+      buildItemAAD(baseKey, itemId),
+    ),
+  ];
+}
+
+export function buildCollectionIndexPair<TSummary>(
+  baseKey: string,
+  vaultKey: Uint8Array,
+  index: CollectionIndexRecord<TSummary>,
+): [string, string] {
+  return [
+    collectionIndexKey(baseKey),
+    encryptBlob(
+      vaultKey,
+      textEncode(JSON.stringify(index)),
+      buildIndexAAD(baseKey),
+    ),
+  ];
+}
+
 export async function removeCollectionItem(
   baseKey: string,
   itemId: string,

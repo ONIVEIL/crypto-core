@@ -76,6 +76,31 @@ export async function saveSession(
   });
 }
 
+// For an atomic joint commit with other storage areas (outbox, replay-freshness store): returns
+// only the encrypted write pair without writing. Same format as saveSession.
+export function buildSessionPair(
+  contactId: string,
+  session: Session,
+  vaultKey: Uint8Array,
+): [string, string] {
+  return [
+    sessionsStorageKey(contactId),
+    encryptBlob(
+      vaultKey,
+      new TextEncoder().encode(JSON.stringify(session)),
+      sessionAAD(contactId),
+    ),
+  ];
+}
+
+// The lock that saveSession/deleteSession also take for this contact.
+export async function withSessionStorageLock<T>(
+  contactId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withCollectionLock(sessionsStorageKey(contactId), operation);
+}
+
 // Deletes the session of a contact (e.g. when removing the contact) — otherwise the chain-key
 // state would stay stored permanently as an orphan.
 export async function deleteSession(contactId: string): Promise<void> {

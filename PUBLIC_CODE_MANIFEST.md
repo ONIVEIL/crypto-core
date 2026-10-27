@@ -5,6 +5,8 @@
 - Exported from the private ONIVEIL repository at commit `f0b7350897df57b57046f74b2549d900007759fd` (branch `master`, working tree clean at export time).
 - **The git history is not included and was not reviewed for export.** This repository starts without history on purpose.
 - Export date: 2026-09-24.
+- Updated 2026-10-27 from the same private repository at commit `7112c0a` (branch `audit/hardening-2026-10`). Twelve source files changed since the first export: `crypto/{session,attachmentCrypto,identity,validation,textCodec,contactCode,messageContent}.ts`, `storage/{consumedInitialFreshness,sessions,encryptedCollection,encryptedStore}.ts` and `transport/wireProtocol.ts`. Main additions: authenticated delivery acknowledgements, protection against silently replacing the identity, atomic session + replay-freshness commit, strict UTF-8 decoding, a broader invisible-character filter, strict envelope format checks, and legacy contact-code prefix support.
+- Deliberate difference from the private repository in `storage/sessions.ts`: the private app additionally waits for a one-time protocol-epoch migration before touching sessions; that migration code is app-specific and not part of this repository.
 
 ## What is included
 
@@ -46,7 +48,7 @@ Unchanged on purpose: all code lines of the `src/` files, including German error
 ## Verification performed
 
 - **Code identity:** for every exported `src/` file and test file, the original and the exported version were transpiled with comments removed (TypeScript `removeComments`) and compared token-for-token after applying the same rename to the original. Differences: none in `src/`; in tests only the deliberate ones listed above (test titles are excluded from the comparison; items 3 and 4 were reviewed by hand).
-- **Tests:** `npm ci && npm test` → 20 suites, 475 tests passing. The same 20 suites pass identically (475 tests) in the original repository.
+- **Tests:** `npm ci && npm test` → 20 suites, 516 tests passing (the 2026-10-27 update added tests for the new behavior; the code-identity comparison below was last run for the first export, the update was applied by hand from the diff and checked by the tests and the type check).
 - **Type check:** `npm run typecheck` (`tsc --noEmit`, strict) passes.
 - **Leak scan:** searched `src/` and `__tests__/` for development-process terms, personal names/e-mail addresses, absolute local paths, tool/vendor names and device names; the only remaining hits are the test-data identifier noted above.
 

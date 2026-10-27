@@ -81,4 +81,47 @@ describe('bytesToUtf8', () => {
       '\u{10000}',
     );
   });
+
+  describe('strict decoding', () => {
+    const REPLACEMENT = String.fromCodePoint(0xfffd);
+
+    it('rejects overlong encodings (two bytes for an ASCII character)', () => {
+      // 0xC0 0x80 would be an overlong encoding of U+0000, 0xC1 0xBF one of U+007F
+      expect(bytesToUtf8(new Uint8Array([0xc0, 0x80]))).toBe(REPLACEMENT);
+      expect(bytesToUtf8(new Uint8Array([0xc1, 0xbf]))).toBe(REPLACEMENT);
+    });
+
+    it('rejects overlong three- and four-byte encodings', () => {
+      expect(bytesToUtf8(new Uint8Array([0xe0, 0x80, 0xaf]))).toBe(REPLACEMENT);
+      expect(bytesToUtf8(new Uint8Array([0xf0, 0x80, 0x80, 0xaf]))).toBe(
+        REPLACEMENT,
+      );
+    });
+
+    it('rejects surrogate halves (U+D800-DFFF)', () => {
+      expect(bytesToUtf8(new Uint8Array([0xed, 0xa0, 0x80]))).toBe(REPLACEMENT);
+      expect(bytesToUtf8(new Uint8Array([0xed, 0xbf, 0xbf]))).toBe(REPLACEMENT);
+    });
+
+    it('rejects values above U+10FFFF', () => {
+      expect(bytesToUtf8(new Uint8Array([0xf4, 0x90, 0x80, 0x80]))).toBe(
+        REPLACEMENT,
+      );
+    });
+
+    it('still decodes the shortest valid form of each length', () => {
+      expect(bytesToUtf8(new Uint8Array([0xc2, 0x80]))).toBe(
+        String.fromCodePoint(0x80),
+      );
+      expect(bytesToUtf8(new Uint8Array([0xe0, 0xa0, 0x80]))).toBe(
+        String.fromCodePoint(0x800),
+      );
+      expect(bytesToUtf8(new Uint8Array([0xf0, 0x90, 0x80, 0x80]))).toBe(
+        String.fromCodePoint(0x10000),
+      );
+      expect(bytesToUtf8(new Uint8Array([0xf4, 0x8f, 0xbf, 0xbf]))).toBe(
+        String.fromCodePoint(0x10ffff),
+      );
+    });
+  });
 });

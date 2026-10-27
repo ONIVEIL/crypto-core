@@ -18,7 +18,14 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 
 import {describe, it, expect, beforeEach} from '@jest/globals';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {checkAndRecordInitialFreshness} from '../src/storage/consumedInitialFreshness';
+import {x25519} from '@noble/curves/ed25519.js';
+import {bytesToHex} from '@noble/hashes/utils.js';
+import {createSession} from '../src/crypto/session';
+import {
+  checkAndRecordInitialFreshness,
+  commitSessionWithFreshness,
+} from '../src/storage/consumedInitialFreshness';
+import {getSession} from '../src/storage/sessions';
 
 beforeEach(async () => {
   await AsyncStorage.clear();
@@ -82,5 +89,41 @@ describe('consumedInitialFreshness store (KCI/reset hardening)', () => {
     // withCollectionLock serializes the operation, see storage/consumedInitialFreshness.ts.
     expect(results.filter(r => r === true)).toHaveLength(1);
     expect(results.filter(r => r === false)).toHaveLength(2);
+  });
+
+  describe('commitSessionWithFreshness (atomic)', () => {
+    function makeSession() {
+      const a = x25519.keygen();
+      const b = x25519.keygen();
+      return createSession(
+        bytesToHex(a.secretKey),
+        bytesToHex(a.publicKey),
+        bytesToHex(b.publicKey),
+      );
+    }
+
+    it('stores the session and consumes the freshness together', async () => {
+      const peer = 'peer-a'.padEnd(64, '0');
+      const session = makeSession();
+
+      await expect(
+        commitSessionWithFreshness('c1', session, peer, 'fresh-1'),
+      ).resolves.toBe(true);
+
+      expect((await getSession('c1'))?.rootKey).toBe(session.rootKey);
+      await expect(
+        checkAndRecordInitialFreshness(peer, 'fresh-1'),
+      ).resolves.toBe(false);
+    });
+
+    it('writes nothing when the freshness was already consumed', async () => {
+      const peer = 'peer-a'.padEnd(64, '0');
+      await checkAndRecordInitialFreshness(peer, 'fresh-1');
+
+      await expect(
+        commitSessionWithFreshness('c1', makeSession(), peer, 'fresh-1'),
+      ).resolves.toBe(false);
+      expect(await getSession('c1')).toBeNull();
+    });
   });
 });

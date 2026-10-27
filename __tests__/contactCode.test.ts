@@ -84,4 +84,22 @@ describe('contactCode', () => {
       onionAddress: `${'z'.repeat(56)}.onion`,
     });
   });
+
+  describe('prefix after the rename to ONIVEIL', () => {
+    it('builds codes with the new prefix', () => {
+      expect(buildContactCode(FIELDS).startsWith('oniveil-kontakt:')).toBe(true);
+    });
+
+    it('still accepts codes with the legacy prefix so existing contacts need not exchange codes again', () => {
+      const legacy = `onyvia-kontakt:${FIELDS.onionAddress}:${FIELDS.signingPublicKey}:${FIELDS.encryptionPublicKey}`;
+      expect(parseContactCode(legacy)).toEqual(FIELDS);
+      expect(parseContactCode(legacy.toUpperCase().replace('ONYVIA-KONTAKT', 'Onyvia-Kontakt'))).not.toBeNull();
+    });
+
+    it('still rejects foreign prefixes', () => {
+      expect(
+        parseContactCode(`fremd-kontakt:${FIELDS.onionAddress}:${FIELDS.signingPublicKey}:${FIELDS.encryptionPublicKey}`),
+      ).toBeNull();
+    });
+  });
 });

@@ -19,6 +19,7 @@ import {
   MAX_MESSAGE_LENGTH,
   ONION_V3_PATTERN,
   sanitizeUserText,
+  sanitizeSingleLineText,
 } from './validation';
 
 export const MAX_FILENAME_LENGTH = 255;
@@ -225,7 +226,7 @@ export function decodeMessageContent(raw: string): MessageContent | null {
         v: 1,
         type: 'reaction',
         targetId: obj.targetId,
-        emoji: obj.emoji === null ? null : sanitizeUserText(obj.emoji, 16),
+        emoji: obj.emoji === null ? null : sanitizeSingleLineText(obj.emoji, 16),
       };
     }
     case 'read': {
@@ -308,8 +309,8 @@ export function decodeMessageContent(raw: string): MessageContent | null {
         type: 'media',
         id: obj.id,
         transferId: obj.transferId,
-        filename: sanitizeUserText(obj.filename, MAX_FILENAME_LENGTH),
-        mimeType: sanitizeUserText(obj.mimeType, MAX_MIME_TYPE_LENGTH),
+        filename: sanitizeSingleLineText(obj.filename, MAX_FILENAME_LENGTH),
+        mimeType: sanitizeSingleLineText(obj.mimeType, MAX_MIME_TYPE_LENGTH),
         size: obj.size,
         key: obj.key,
         replyToId: obj.replyToId,
@@ -369,7 +370,7 @@ export function decodeMessageContent(raw: string): MessageContent | null {
         type: 'group-reaction',
         groupId: obj.groupId,
         targetId: obj.targetId,
-        emoji: obj.emoji === null ? null : sanitizeUserText(obj.emoji, 16),
+        emoji: obj.emoji === null ? null : sanitizeSingleLineText(obj.emoji, 16),
       };
     }
     case 'group-read': {
@@ -487,8 +488,8 @@ export function decodeMessageContent(raw: string): MessageContent | null {
         groupId: obj.groupId,
         id: obj.id,
         transferId: obj.transferId,
-        filename: sanitizeUserText(obj.filename, MAX_FILENAME_LENGTH),
-        mimeType: sanitizeUserText(obj.mimeType, MAX_MIME_TYPE_LENGTH),
+        filename: sanitizeSingleLineText(obj.filename, MAX_FILENAME_LENGTH),
+        mimeType: sanitizeSingleLineText(obj.mimeType, MAX_MIME_TYPE_LENGTH),
         size: obj.size,
         key: obj.key,
         replyToId: obj.replyToId,
@@ -561,7 +562,7 @@ export function decodeMessageContent(raw: string): MessageContent | null {
         type: 'group-meta',
         groupId: obj.groupId,
         stateVersion: obj.stateVersion,
-        name: sanitizeUserText(obj.name, MAX_DISPLAY_NAME_LENGTH),
+        name: sanitizeSingleLineText(obj.name, MAX_DISPLAY_NAME_LENGTH),
         members,
       };
     }

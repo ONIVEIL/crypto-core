@@ -354,6 +354,49 @@ function sequenceNumberToBytes(sequenceNumber: number): Uint8Array {
   return bytes;
 }
 
+// Delivery acknowledgement: previously an `ack` was only the sequence number — whoever answered at
+// the end of the connection (e.g. after the onion address field of a contact code was swapped)
+// could confirm arbitrary messages as "delivered". The acknowledgement key is derived from the
+// message key, which only the sender and the real recipient know; the recipient thereby proves it
+// actually decrypted the message. Separate purpose labels, so the message key itself is never used
+// as a MAC key.
+const ACK_KEY_INFO = utf8ToBytes('oniveil-ack-key-v1');
+const ACK_MAC_INFO = utf8ToBytes('oniveil-ack-mac-v1');
+
+export function deriveAckKey(messageKey: Uint8Array): string {
+  return bytesToHex(hmac(sha256, messageKey, ACK_KEY_INFO));
+}
+
+export function computeAckMac(
+  ackKeyHex: string,
+  sequenceNumber: number,
+): string {
+  return bytesToHex(
+    hmac(
+      sha256,
+      hexToBytes(ackKeyHex),
+      concatBytes(ACK_MAC_INFO, sequenceNumberToBytes(sequenceNumber)),
+    ),
+  );
+}
+
+// Constant-time comparison: no hint about the length of the matching prefix.
+export function verifyAckMac(
+  ackKeyHex: string,
+  sequenceNumber: number,
+  macHex: string,
+): boolean {
+  if (!HEX_32_BYTES_PATTERN.test(macHex) || !HEX_32_BYTES_PATTERN.test(ackKeyHex)) {
+    return false;
+  }
+  const expected = computeAckMac(ackKeyHex, sequenceNumber);
+  let diff = 0;
+  for (let i = 0; i < expected.length; i += 1) {
+    diff |= expected.charCodeAt(i) ^ macHex.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 // KCI/reset hardening: the transcript that is signed on the first message of each direction.
 // Binds the freshness component firmly to BOTH static keys (sender first) — an attacker who knows
 // only one of the two static keys cannot produce a valid Ed25519 signature for this transcript,
@@ -396,7 +439,11 @@ export async function encryptMessage(
   session: Session,
   plaintext: string,
   mySigningPrivateKey: string,
-): Promise<{envelope: OutgoingEnvelope; nextSession: Session}> {
+): Promise<{
+  envelope: OutgoingEnvelope;
+  nextSession: Session;
+  ackKey: string;
+}> {
   let rootKey = hexToBytes(session.rootKey);
   let sendingChainKey = hexToBytes(session.sendingChainKey);
   let myRatchetPrivateKey = session.myRatchetPrivateKey;
@@ -467,6 +514,7 @@ export async function encryptMessage(
       initialFreshness,
       initialAuth,
     },
+    ackKey: deriveAckKey(messageKey),
     nextSession: {
       ...session,
       rootKey: bytesToHex(rootKey),
@@ -483,7 +531,12 @@ export async function decryptMessage(
   session: Session,
   envelope: OutgoingEnvelope,
   theirSigningPublicKey: string,
-): Promise<{plaintext: string; nextSession: Session; duplicate: boolean}> {
+): Promise<{
+  plaintext: string;
+  nextSession: Session;
+  duplicate: boolean;
+  ackKey: string;
+}> {
   // See module documentation "Tolerance for REPEATED delivery": a sequence number BELOW the
   // expected next value is not necessarily an attack — it can also be the (identical) repeat of a
   // message that WE already processed successfully but whose acknowledgement never reached the
@@ -524,6 +577,7 @@ export async function decryptMessage(
       plaintext: bytesToUtf8(plaintextBytes),
       nextSession: session,
       duplicate: true,
+      ackKey: deriveAckKey(hexToBytes(cached.messageKey)),
     };
   }
 
@@ -616,6 +670,7 @@ export async function decryptMessage(
   return {
     plaintext: bytesToUtf8(plaintextBytes),
     duplicate: false,
+    ackKey: deriveAckKey(messageKey),
     nextSession: {
       ...session,
       rootKey: bytesToHex(rootKey),

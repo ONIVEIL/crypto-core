@@ -12,11 +12,15 @@
 // original pairing — the signature protection alone does NOT cover this replay path. This store
 // closes exactly that gap: a freshness that was once successfully used counts as consumed
 // FOREVER, regardless of how often the contact is deleted/re-created in between.
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import type {Session} from '../crypto/session';
 import {
+  encryptBlob,
   readEncrypted,
   withCollectionLock,
   writeEncrypted,
 } from './encryptedStore';
+import {buildSessionPair, withSessionStorageLock} from './sessions';
 import {getOrCreateVaultKey} from './vaultKey';
 
 const CONSUMED_INITIAL_FRESHNESS_STORAGE_KEY =
@@ -35,6 +39,47 @@ type ConsumedFreshnessByPeer = Record<string, string[]>;
 // read-then-write window in which two concurrent attempts with the same freshness could both pass
 // as "new". Return value `true`: this freshness was new, the message may be accepted. `false`:
 // already consumed once — replay, reject.
+// Checks the freshness AND stores the advanced session in ONE atomic multiSet. Previously the
+// freshness was marked as consumed first and the session saved afterwards; an abort or write error
+// in between left the freshness consumed but the session unchanged — the sender's retry was then
+// rejected permanently as a replay. `false`: the freshness was already consumed, NOTHING was
+// written.
+export async function commitSessionWithFreshness(
+  contactId: string,
+  session: Session,
+  peerStaticPublicKey: string,
+  freshness: string,
+): Promise<boolean> {
+  return withCollectionLock(
+    CONSUMED_INITIAL_FRESHNESS_STORAGE_KEY,
+    () =>
+      withSessionStorageLock(contactId, async () => {
+        const vaultKey = await getOrCreateVaultKey();
+        const store = await readEncrypted<ConsumedFreshnessByPeer>(
+          CONSUMED_INITIAL_FRESHNESS_STORAGE_KEY,
+          vaultKey,
+          {},
+        );
+        const existing = store[peerStaticPublicKey] ?? [];
+        if (existing.includes(freshness)) {
+          return false;
+        }
+        store[peerStaticPublicKey] = [...existing, freshness];
+        await AsyncStorage.multiSet([
+          buildSessionPair(contactId, session, vaultKey),
+          [
+            CONSUMED_INITIAL_FRESHNESS_STORAGE_KEY,
+            encryptBlob(
+              vaultKey,
+              new TextEncoder().encode(JSON.stringify(store)),
+            ),
+          ],
+        ]);
+        return true;
+      }),
+  );
+}
+
 export async function checkAndRecordInitialFreshness(
   peerStaticPublicKey: string,
   freshness: string,

@@ -8,6 +8,7 @@ import 'react-native-get-random-values';
 import * as ed from '@noble/ed25519';
 import {x25519} from '@noble/curves/ed25519.js';
 import {sha512} from '@noble/hashes/sha2.js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
 import {hardenedGetOptions, hardenedSetOptions} from './keychainOptions';
 import {deriveOnionAddressFromPublicKey} from './onionAddress';
@@ -16,6 +17,33 @@ import {deriveOnionAddressFromPublicKey} from './onionAddress';
 ed.hashes.sha512Async = (m: Uint8Array) => Promise.resolve(sha512(m));
 
 const KEYCHAIN_SERVICE = 'oniveil-identity';
+
+// Unencrypted marker (not a secret): "an identity was created on this device before". The Android
+// Keystore can temporarily report an entry as missing (see storage/vaultKey.ts); without this
+// marker the onboarding flow would silently create a NEW identity and overwrite the old one — new
+// keys, new safety number, every contact loses the connection.
+const IDENTITY_EVER_CREATED_MARKER = 'oniveil:identity-ever-created';
+// Hints at an existing installation for users who created their identity before the marker
+// existed (the vault key is created when data is first stored).
+const LEGACY_INSTALLATION_MARKERS = ['oniveil:vault-key-ever-created'];
+
+export class IdentityMissingError extends Error {
+  constructor() {
+    super(
+      'The identity was not found in the keystore although one existed on this device — it is not replaced automatically.',
+    );
+    this.name = 'IdentityMissingError';
+  }
+}
+
+async function installationHadIdentity(): Promise<boolean> {
+  for (const key of [IDENTITY_EVER_CREATED_MARKER, ...LEGACY_INSTALLATION_MARKERS]) {
+    if (await AsyncStorage.getItem(key)) {
+      return true;
+    }
+  }
+  return false;
+}
 const {bytesToHex, hexToBytes} = ed.etc;
 
 const KEYCHAIN_SET_OPTIONS = hardenedSetOptions(KEYCHAIN_SERVICE);
@@ -52,8 +80,16 @@ function buildIdentity(
 }
 
 // Creates a new identity (signing + encryption key) and stores the private keys securely
-// (Android Keystore via Keychain)
-export async function createAndStoreIdentity(): Promise<Identity> {
+// (Android Keystore via Keychain).
+//
+// Throws IdentityMissingError if an identity already existed on this device and none is found now.
+// Only with `allowReplace` (explicit, confirmed decision of the user) is it replaced anyway.
+export async function createAndStoreIdentity(options?: {
+  allowReplace?: boolean;
+}): Promise<Identity> {
+  if (!options?.allowReplace && (await installationHadIdentity())) {
+    throw new IdentityMissingError();
+  }
   const {secretKey: signingSecretKey, publicKey: signingPublicKey} =
     await ed.keygenAsync();
   const {secretKey: encryptionSecretKey, publicKey: encryptionPublicKey} =
@@ -68,6 +104,7 @@ export async function createAndStoreIdentity(): Promise<Identity> {
     JSON.stringify(stored),
     KEYCHAIN_SET_OPTIONS,
   );
+  await AsyncStorage.setItem(IDENTITY_EVER_CREATED_MARKER, '1');
 
   return buildIdentity(
     signingSecretKey,
@@ -83,6 +120,9 @@ export async function loadIdentity(): Promise<Identity | null> {
   if (!result) {
     return null;
   }
+
+  // Backfill the marker (best effort) so that an older installation is protected from now on.
+  AsyncStorage.setItem(IDENTITY_EVER_CREATED_MARKER, '1').catch(() => {});
 
   const stored: StoredSecrets = JSON.parse(result.password);
   const signingSecretKey = hexToBytes(stored.signingPrivateKey);

@@ -9,11 +9,14 @@
 // separately over the attachment transfer, split into several frames but encrypted as ONE AEAD
 // operation (XChaCha20-Poly1305 has no block-size problem with several MB).
 import {xchacha20poly1305} from '@noble/ciphers/chacha.js';
+import {hmac} from '@noble/hashes/hmac.js';
+import {sha256} from '@noble/hashes/sha2.js';
 import {
   bytesToHex,
   concatBytes,
   hexToBytes,
   randomBytes,
+  utf8ToBytes,
 } from '@noble/hashes/utils.js';
 
 const KEY_LENGTH = 32;
@@ -51,6 +54,45 @@ export function encryptAttachment(
     new TextEncoder().encode(associatedData),
   ).encrypt(plaintext);
   return concatBytes(nonce, ciphertext);
+}
+
+// Acknowledgement of an attachment receipt (`media-ack`) with a key only the sender and the
+// recipient of the attachment know (derived from the attachment key, which itself only travelled
+// through the authenticated session). Without it, any peer at the end of the connection could
+// confirm an attachment as delivered.
+export function deriveMediaAckKey(attachmentKeyHex: string): string {
+  return bytesToHex(
+    hmac(sha256, hexToBytes(attachmentKeyHex), utf8ToBytes('oniveil-media-ack-key-v1')),
+  );
+}
+
+export function computeMediaAckMac(
+  ackKeyHex: string,
+  transferId: string,
+): string {
+  return bytesToHex(
+    hmac(
+      sha256,
+      hexToBytes(ackKeyHex),
+      concatBytes(utf8ToBytes('oniveil-media-ack-mac-v1|'), utf8ToBytes(transferId)),
+    ),
+  );
+}
+
+export function verifyMediaAckMac(
+  ackKeyHex: string,
+  transferId: string,
+  macHex: string,
+): boolean {
+  if (!/^[0-9a-f]{64}$/.test(macHex) || !/^[0-9a-f]{64}$/.test(ackKeyHex)) {
+    return false;
+  }
+  const expected = computeMediaAckMac(ackKeyHex, transferId);
+  let diff = 0;
+  for (let i = 0; i < expected.length; i += 1) {
+    diff |= expected.charCodeAt(i) ^ macHex.charCodeAt(i);
+  }
+  return diff === 0;
 }
 
 // Throws (AEAD authentication fails, or the blob is too short to even contain a nonce) if the

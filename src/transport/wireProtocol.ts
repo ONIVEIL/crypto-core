@@ -57,9 +57,12 @@ const MAX_MEDIA_CHUNKS = 4096;
 // as a registry/map key.
 const MAX_TRANSFER_ID_LENGTH = 128;
 
+// `mac` proves that the responder actually decrypted the message (see crypto/session.ts
+// deriveAckKey/computeAckMac). Optional as long as older peers do not send an authenticated
+// acknowledgement — the sender requires it once it has seen one from this contact.
 export type Frame =
   | {type: 'message'; envelope: OutgoingEnvelope}
-  | {type: 'ack'; sequenceNumber: number}
+  | {type: 'ack'; sequenceNumber: number; mac?: string}
   // One chunk of an attachment transfer — `data` is Base64-encoded (see
   // MAX_MEDIA_CHUNK_BASE64_LENGTH above for the rationale), `transferId` correlates all chunks of
   // a transfer AND must be known to the receiver in advance from a successfully decrypted 'media'
@@ -71,7 +74,19 @@ export type Frame =
       totalChunks: number;
       data: string;
     }
-  | {type: 'media-ack'; transferId: string};
+  | {type: 'media-ack'; transferId: string; mac?: string};
+
+// Strict format check of the envelope fields BEFORE any expensive operation (keychain, X25519,
+// Ed25519) is applied to them. Frames are unauthenticated; the earlier an invalid frame is
+// discarded, the less computation time a stranger can force.
+const NONCE_HEX_PATTERN = /^[0-9a-f]{48}$/; // XChaCha20 nonce, 24 bytes
+const CIPHERTEXT_HEX_PATTERN = /^(?:[0-9a-f]{2})+$/;
+const INITIAL_FRESHNESS_HEX_PATTERN = /^[0-9a-f]{32}$/; // 16 bytes
+const INITIAL_AUTH_HEX_PATTERN = /^[0-9a-f]{128}$/; // Ed25519 signature, 64 bytes
+// The Poly1305 tag (16 bytes) is mandatory; an envelope fits into MAX_FRAME_SIZE at the top anyway.
+const MIN_CIPHERTEXT_HEX_LENGTH = 32;
+const MAX_CIPHERTEXT_HEX_LENGTH = 50_000;
+const MAX_SEQUENCE_NUMBER = 2 ** 32;
 
 export class ProtocolError extends Error {
   constructor(message: string) {
@@ -85,15 +100,48 @@ function isOutgoingEnvelope(value: unknown): value is OutgoingEnvelope {
     return false;
   }
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.sequenceNumber === 'number' &&
-    Number.isInteger(v.sequenceNumber) &&
-    v.sequenceNumber >= 0 &&
-    typeof v.nonce === 'string' &&
-    typeof v.ciphertext === 'string' &&
-    typeof v.ratchetPublicKey === 'string' &&
-    HEX_32_BYTES_PATTERN.test(v.ratchetPublicKey)
-  );
+  if (
+    typeof v.sequenceNumber !== 'number' ||
+    !Number.isInteger(v.sequenceNumber) ||
+    v.sequenceNumber < 0 ||
+    v.sequenceNumber > MAX_SEQUENCE_NUMBER ||
+    typeof v.nonce !== 'string' ||
+    !NONCE_HEX_PATTERN.test(v.nonce) ||
+    typeof v.ciphertext !== 'string' ||
+    v.ciphertext.length < MIN_CIPHERTEXT_HEX_LENGTH ||
+    v.ciphertext.length > MAX_CIPHERTEXT_HEX_LENGTH ||
+    !CIPHERTEXT_HEX_PATTERN.test(v.ciphertext) ||
+    typeof v.ratchetPublicKey !== 'string' ||
+    !HEX_32_BYTES_PATTERN.test(v.ratchetPublicKey)
+  ) {
+    return false;
+  }
+  // Optional fields of the first message: if present, exactly in the expected format.
+  if (
+    v.initialFreshness !== undefined &&
+    (typeof v.initialFreshness !== 'string' ||
+      !INITIAL_FRESHNESS_HEX_PATTERN.test(v.initialFreshness))
+  ) {
+    return false;
+  }
+  if (
+    v.initialAuth !== undefined &&
+    (typeof v.initialAuth !== 'string' ||
+      !INITIAL_AUTH_HEX_PATTERN.test(v.initialAuth))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function parseOptionalMac(value: unknown, frameName: string): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !HEX_32_BYTES_PATTERN.test(value)) {
+    throw new ProtocolError(`${frameName}-Frame hat keine gültige mac.`);
+  }
+  return value;
 }
 
 function parseFramePayload(json: unknown): Frame {
@@ -115,7 +163,11 @@ function parseFramePayload(json: unknown): Frame {
     ) {
       throw new ProtocolError('ack-Frame hat keine gültige sequenceNumber.');
     }
-    return {type: 'ack', sequenceNumber: obj.sequenceNumber};
+    return {
+      type: 'ack',
+      sequenceNumber: obj.sequenceNumber,
+      mac: parseOptionalMac(obj.mac, 'ack'),
+    };
   }
   if (obj.type === 'media-chunk') {
     if (
@@ -170,7 +222,11 @@ function parseFramePayload(json: unknown): Frame {
     ) {
       throw new ProtocolError('media-ack-Frame hat keine gültige transferId.');
     }
-    return {type: 'media-ack', transferId: obj.transferId};
+    return {
+      type: 'media-ack',
+      transferId: obj.transferId,
+      mac: parseOptionalMac(obj.mac, 'media-ack'),
+    };
   }
   throw new ProtocolError(`Unbekannter Frame-Typ: ${String(obj.type)}`);
 }

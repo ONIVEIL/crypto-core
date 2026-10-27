@@ -81,10 +81,16 @@ export function bytesToUtf8(bytes: Uint8Array): string {
       i += consumed;
       continue;
     }
-    if (codepoint > 0x10ffff) {
-      // All announced bytes were structurally valid continuation bytes, but together yield an
-      // impossible code point (e.g. from a damaged 4-byte sequence) — consume the complete
-      // sequence here, since (unlike above) it was fully present.
+    // Strict per the UTF-8 standard. Overlong encodings (e.g. two bytes for an ASCII character),
+    // surrogate halves (U+D800-DFFF) and values above U+10FFFF are invalid and become the
+    // replacement character — not a character that a byte-level check never saw. All announced
+    // bytes were structurally valid continuation bytes, so the complete sequence is consumed.
+    const minimumForLength = length === 2 ? 0x80 : length === 3 ? 0x800 : 0x10000;
+    if (
+      codepoint < minimumForLength ||
+      codepoint > 0x10ffff ||
+      (codepoint >= 0xd800 && codepoint <= 0xdfff)
+    ) {
       result += REPLACEMENT_CHAR;
       i += length;
       continue;

@@ -104,8 +104,14 @@ export function decodeEncrypted<T>(
     // Decrypted successfully, but not valid JSON (e.g. damaged by an interrupted write) — fail-safe
     // instead of a crash is the right choice here, since authenticity has already been confirmed.
     // Deliberately no error object in the log.
-    console.warn(
-      `oniveil: konnte "${storageKeyForLogging}" nicht parsen, verwende Standardwert.`,
+    // The (authentic but unreadable) blob is kept as a backup before a later overwrite with the
+    // default value — at most ONE backup per key. Fire-and-forget: a failure to back up must not
+    // disturb reading.
+    AsyncStorage.setItem(`${storageKeyForLogging}:unreadable-backup`, stored).catch(
+      () => {},
+    );
+    diagLog(
+      `oniveil[diag]: konnte "${storageKeyForLogging}" nicht parsen, verwende Standardwert (Sicherung angelegt).`,
     );
     // Structure only, no content: also used for contacts etc., a plaintext excerpt could write
     // personal data (display names, onion addresses) into logcat here. First/last character

@@ -3,7 +3,11 @@
  */
 
 import {describe, it, expect} from '@jest/globals';
-import {normalizeOnionAddress, sanitizeUserText} from '../src/crypto/validation';
+import {
+  normalizeOnionAddress,
+  sanitizeSingleLineText,
+  sanitizeUserText,
+} from '../src/crypto/validation';
 
 describe('sanitizeUserText', () => {
   it('leaves normal text unchanged', () => {
@@ -88,5 +92,56 @@ describe('normalizeOnionAddress', () => {
     expect(normalizeOnionAddress(`  ${rawPublicKeyHex}  `)).toBe(
       'aaaqeayeaudaocajbifqydiob4ibceqtcqkrmfyydenbwha5dyp3kead.onion',
     );
+  });
+});
+
+describe('sanitizeUserText / sanitizeSingleLineText (invisible and control characters)', () => {
+  const cp = (code: number) => String.fromCodePoint(code);
+  const NEWLINE = String.fromCharCode(10);
+  const TAB = String.fromCharCode(9);
+
+  it('removes control characters but keeps line feed and tab', () => {
+    const text = `a${cp(1)}b${cp(0x7f)}c${cp(0x85)}d${NEWLINE}e${TAB}f`;
+    expect(sanitizeUserText(text, 100)).toBe(`abcd${NEWLINE}e${TAB}f`);
+  });
+
+  it('removes bidi overrides, isolates, zero-width space, word joiner and line separators', () => {
+    const bad = [0x202a, 0x202e, 0x2066, 0x2069, 0x200b, 0x2060, 0x2064, 0x2028, 0x2029, 0x061c, 0xfeff, 0x206a].map(cp);
+    expect(sanitizeUserText(`x${bad.join('y')}z`, 100)).toBe(
+      `x${'y'.repeat(bad.length - 1)}z`,
+    );
+  });
+
+  it('removes invisible Unicode tag characters and surplus variation selectors', () => {
+    const tagged = `a${cp(0xe0041)}${cp(0xe0042)}b${cp(0xfe00)}c${cp(0xe0100)}d`;
+    expect(sanitizeUserText(tagged, 100)).toBe('abcd');
+  });
+
+  it('keeps emoji presentation and composite emoji (VS16, zero-width joiner)', () => {
+    const heart = `${cp(0x2764)}${cp(0xfe0f)}`;
+    const family = `${cp(0x1f468)}${cp(0x200d)}${cp(0x1f469)}${cp(0x200d)}${cp(0x1f467)}`;
+    expect(sanitizeUserText(heart + family, 100)).toBe(heart + family);
+  });
+
+  it('keeps LRM/RLM and real RTL text', () => {
+    const text = `${cp(0x05d0)}${cp(0x05d1)}${cp(0x200f)}1`;
+    expect(sanitizeUserText(text, 100)).toBe(text);
+  });
+
+  it('never splits a surrogate pair in the middle when truncating', () => {
+    const smiley = cp(0x1f600);
+    expect(sanitizeUserText(`a${smiley}${smiley}`, 2)).toBe('a');
+    expect(sanitizeUserText(`a${smiley}${smiley}`, 3)).toBe(`a${smiley}`);
+    expect(sanitizeUserText(`${smiley}${smiley}`, 3)).toBe(smiley);
+  });
+
+  it('the single-line variant turns line breaks and tabs into spaces and trims the edges', () => {
+    expect(
+      sanitizeSingleLineText(`  Ana${NEWLINE}${NEWLINE}Maria${TAB}K  `, 100),
+    ).toBe('Ana Maria K');
+  });
+
+  it('the single-line variant truncates only after cleaning', () => {
+    expect(sanitizeSingleLineText(`${cp(0x202e)}abcdef`, 3)).toBe('abc');
   });
 });

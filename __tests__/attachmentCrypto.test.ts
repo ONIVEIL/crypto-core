@@ -6,10 +6,30 @@ global.crypto = global.crypto ?? require('crypto').webcrypto;
 
 import {describe, it, expect} from '@jest/globals';
 import {
+  computeMediaAckMac,
   decryptAttachment,
+  deriveMediaAckKey,
   encryptAttachment,
   generateAttachmentKey,
+  verifyMediaAckMac,
 } from '../src/crypto/attachmentCrypto';
+
+describe('attachment acknowledgement', () => {
+  it('accepts the MAC for the right transfer and rejects it for another one', () => {
+    const ackKey = deriveMediaAckKey(generateAttachmentKey());
+    const mac = computeMediaAckMac(ackKey, 'transfer-1');
+    expect(verifyMediaAckMac(ackKey, 'transfer-1', mac)).toBe(true);
+    expect(verifyMediaAckMac(ackKey, 'transfer-2', mac)).toBe(false);
+  });
+
+  it('rejects a MAC derived from a different attachment key and malformed values', () => {
+    const ackKey = deriveMediaAckKey(generateAttachmentKey());
+    const otherKey = deriveMediaAckKey(generateAttachmentKey());
+    const mac = computeMediaAckMac(otherKey, 'transfer-1');
+    expect(verifyMediaAckMac(ackKey, 'transfer-1', mac)).toBe(false);
+    expect(verifyMediaAckMac(ackKey, 'transfer-1', 'zz')).toBe(false);
+  });
+});
 
 describe('attachmentCrypto', () => {
   it('encrypts and decrypts without loss', () => {

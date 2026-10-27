@@ -16,6 +16,9 @@ const CONTACT_CODE_SEPARATOR = ':';
 // completely different text (e.g. an ordinary message) before any attempt is made to split it
 // into three parts.
 const CONTACT_CODE_PREFIX = `oniveil-kontakt${CONTACT_CODE_SEPARATOR}`;
+// Codes created before the rename to ONIVEIL stay valid (contacts must not be lost or have to
+// exchange codes again because of the rename).
+const LEGACY_CONTACT_CODE_PREFIX = `onyvia-kontakt${CONTACT_CODE_SEPARATOR}`;
 
 export interface ContactCodeFields {
   onionAddress: string;
@@ -44,10 +47,16 @@ export function buildContactCode({
 // fields, from which addContact() checks again anyway.
 export function parseContactCode(code: string): ContactCodeFields | null {
   const trimmed = code.trim();
-  if (!trimmed.toLowerCase().startsWith(CONTACT_CODE_PREFIX)) {
+  const lower = trimmed.toLowerCase();
+  const prefix = lower.startsWith(CONTACT_CODE_PREFIX)
+    ? CONTACT_CODE_PREFIX
+    : lower.startsWith(LEGACY_CONTACT_CODE_PREFIX)
+    ? LEGACY_CONTACT_CODE_PREFIX
+    : null;
+  if (prefix === null) {
     return null;
   }
-  const parts = trimmed.slice(CONTACT_CODE_PREFIX.length).split(CONTACT_CODE_SEPARATOR);
+  const parts = trimmed.slice(prefix.length).split(CONTACT_CODE_SEPARATOR);
   if (parts.length !== 3) {
     return null;
   }

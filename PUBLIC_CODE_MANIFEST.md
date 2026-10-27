@@ -47,8 +47,8 @@ Unchanged on purpose: all code lines of the `src/` files, including German error
 
 ## Verification performed
 
-- **Code identity:** for every exported `src/` file and test file, the original and the exported version were transpiled with comments removed (TypeScript `removeComments`) and compared token-for-token after applying the same rename to the original. Differences: none in `src/`; in tests only the deliberate ones listed above (test titles are excluded from the comparison; items 3 and 4 were reviewed by hand).
-- **Tests:** `npm ci && npm test` → 20 suites, 518 tests passing (the 2026-10-27 update added tests for the new behavior; the code-identity comparison below was last run for the first export, the update was applied by hand from the diff and checked by the tests and the type check).
+- **Code identity:** for every exported `src/` file and test file, the original and the exported version were transpiled with comments removed (TypeScript `removeComments`) and compared token-for-token after applying the same rename to the original. Re-run for the 2026-10-27 update against commit `7112c0a`: differences in `src/`: only `storage/sessions.ts` (the protocol-epoch import and wait described under Provenance); in tests only the deliberate ones listed above (test titles are excluded from the comparison; items 3 and 4 were reviewed by hand).
+- **Tests:** `npm ci && npm test` → 20 suites, 518 tests passing (the 2026-10-27 update added tests for the new behavior; the type check passes as well).
 - **Type check:** `npm run typecheck` (`tsc --noEmit`, strict) passes.
 - **Leak scan:** searched `src/` and `__tests__/` for development-process terms, personal names/e-mail addresses, absolute local paths, tool/vendor names and device names; the only remaining hits are the test-data identifier noted above.
 

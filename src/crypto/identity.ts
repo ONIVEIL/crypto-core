@@ -30,7 +30,7 @@ const LEGACY_INSTALLATION_MARKERS = ['oniveil:vault-key-ever-created'];
 export class IdentityMissingError extends Error {
   constructor() {
     super(
-      'The identity was not found in the keystore although one existed on this device — it is not replaced automatically.',
+      'Die Identität wurde im Schlüsselspeicher nicht gefunden, obwohl hier schon eine existierte — sie wird nicht automatisch ersetzt.',
     );
     this.name = 'IdentityMissingError';
   }
